@@ -197,6 +197,7 @@ DLT/
 
 ```
 点号 类型 x y
+可通过https://github.com/Hoo-U-Heon/Close-Range-Photogrammetry-Target-Marker进行像点量测
 ```
 
 - **点号**：整数点号，需与控制场文件对应
