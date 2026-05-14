@@ -114,7 +114,7 @@ dy = y'·(k₁r² + k₂r⁴ + k₃r⁶) + p₂(r² + 2y'²) + 2p₁x'y'
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-repo/DLT.git
+git clone https://github.com/Hoo-U-Heon/DirectLinearTransform_CloseRangePhotogrammetry.git 
 cd DLT
 
 # 安装依赖
