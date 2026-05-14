@@ -22,12 +22,13 @@ class CalculationThread(QThread):
     log_updated = Signal(str)
     finished = Signal(bool, str)
 
-    def __init__(self, gcp_file, left_file, right_file, output_dir):
+    def __init__(self, gcp_file, left_file, right_file, output_dir, convergence_threshold=1e-6):
         super().__init__()
         self.gcp_file = gcp_file
         self.left_file = left_file
         self.right_file = right_file
         self.output_dir = output_dir
+        self.convergence_threshold = convergence_threshold
 
     def run(self):
         try:
@@ -50,27 +51,29 @@ class CalculationThread(QThread):
             self.log_updated.emit("\n===== 直接线性变换 =====")
             getCheck(mp_lpt, mp_rpt)
 
+            self.log_updated.emit(f"\n收敛阈值: {self.convergence_threshold}")
+
             self.log_updated.emit("\n--- 左片DLT ---")
             myL_l = getInit(mp_lpt, mp_GCP)
-            getLi(myL_l, mp_lpt, mp_GCP, "左片")
+            getLi(myL_l, mp_lpt, mp_GCP, "左片", convergence_threshold=self.convergence_threshold)
 
             self.progress_updated.emit(50)
 
             self.log_updated.emit("\n--- 右片DLT ---")
             myL_r = getInit(mp_rpt, mp_GCP)
-            getLi(myL_r, mp_rpt, mp_GCP, "右片")
+            getLi(myL_r, mp_rpt, mp_GCP, "右片", convergence_threshold=self.convergence_threshold)
 
             self.progress_updated.emit(70)
 
             # 检查点验证
             self.log_updated.emit("\n===== 检查点验证 =====")
-            getExtPre(mp_lpt, mp_rpt, mp_GCP, myL_l, myL_r)
+            getExtPre(mp_lpt, mp_rpt, mp_GCP, myL_l, myL_r, convergence_threshold=self.convergence_threshold)
 
             self.progress_updated.emit(85)
 
             # 未知点计算
             self.log_updated.emit("\n===== 未知点计算 =====")
-            getUnknow(mp_lpt, mp_rpt, myL_l, myL_r)
+            getUnknow(mp_lpt, mp_rpt, myL_l, myL_r, convergence_threshold=self.convergence_threshold)
 
             self.progress_updated.emit(100)
             self.log_updated.emit("\n计算完成！")
@@ -143,6 +146,20 @@ class MainWindow(QMainWindow):
         output_layout.addWidget(self.output_edit)
         output_layout.addWidget(output_btn)
         main_layout.addLayout(output_layout)
+
+        # 收敛阈值设置
+        threshold_layout = QHBoxLayout()
+        self.threshold_spinbox = QDoubleSpinBox()
+        self.threshold_spinbox.setRange(1e-10, 1e-1)
+        self.threshold_spinbox.setDecimals(10)
+        self.threshold_spinbox.setValue(1e-6)
+        self.threshold_spinbox.setSingleStep(1e-7)
+        self.threshold_spinbox.setStyleSheet("QDoubleSpinBox { min-width: 150px; }")
+        threshold_layout.addWidget(QLabel("迭代收敛阈值:"))
+        threshold_layout.addWidget(self.threshold_spinbox)
+        threshold_layout.addWidget(QLabel("(默认: 1e-6)"))
+        threshold_layout.addStretch()
+        main_layout.addLayout(threshold_layout)
 
         # 操作按钮
         btn_layout = QHBoxLayout()
@@ -255,8 +272,11 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.run_btn.setEnabled(False)
 
+        # 获取收敛阈值
+        convergence_threshold = self.threshold_spinbox.value()
+
         # 创建并启动计算线程
-        self.calc_thread = CalculationThread(gcp_file, left_file, right_file, output_dir)
+        self.calc_thread = CalculationThread(gcp_file, left_file, right_file, output_dir, convergence_threshold)
         self.calc_thread.progress_updated.connect(self.update_progress)
         self.calc_thread.log_updated.connect(self.update_log)
         self.calc_thread.finished.connect(self.on_calc_finished)

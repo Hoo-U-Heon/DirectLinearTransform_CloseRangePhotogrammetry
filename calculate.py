@@ -268,7 +268,7 @@ def saveDLTResult(filename, image_name, l, M, x, W, used):
             fout.write(f"  单位权中误差 (像素): {format_number(sigma * 4272 / 22.2)}\n\n")
 
             # 各未知数的中误差
-            fout.write("【各未知数的中误差】\n")
+            fout.write("【L系数与畸变系数的中误差】\n")
             Q = np.linalg.inv(M.T @ M)
             fout.write(f"  L1: {format_number(sigma * math.sqrt(Q[0, 0]))}\n")
             fout.write(f"  L2: {format_number(sigma * math.sqrt(Q[1, 1]))}\n")
@@ -287,6 +287,47 @@ def saveDLTResult(filename, image_name, l, M, x, W, used):
             fout.write(f"  p1: {format_number(sigma * math.sqrt(Q[14, 14]))}\n")
             fout.write(f"  p2: {format_number(sigma * math.sqrt(Q[15, 15]))}\n\n")
 
+            # 内方位元素的中误差（基于误差传播）
+            fout.write("【内方位元素的中误差】\n")
+            # x0 的中误差近似
+            var_x0 = (Q[0, 0] * l.l9**2 + Q[1, 1] * l.l10**2 + Q[2, 2] * l.l11**2 +
+                      Q[8, 8] * l.l1**2 + Q[9, 9] * l.l2**2 + Q[10, 10] * l.l3**2) * garma**2
+            # y0 的中误差近似
+            var_y0 = (Q[4, 4] * l.l9**2 + Q[5, 5] * l.l10**2 + Q[6, 6] * l.l11**2 +
+                      Q[8, 8] * l.l5**2 + Q[9, 9] * l.l6**2 + Q[10, 10] * l.l7**2) * garma**2
+            # f 的中误差近似（通过fx的误差传播）
+            var_f = (Q[0, 0] * (l.l1**2) + Q[1, 1] * (l.l2**2) + Q[2, 2] * (l.l3**2)) * garma * math.cos(beta)**2 / A
+            
+            fout.write(f"  x0 (mm): {format_number(sigma * math.sqrt(var_x0))}\n")
+            fout.write(f"  y0 (mm): {format_number(sigma * math.sqrt(var_y0))}\n")
+            fout.write(f"  f (mm): {format_number(sigma * math.sqrt(var_f))}\n\n")
+
+            # 外方位元素的中误差（基于误差传播）
+            fout.write("【外方位元素的中误差】\n")
+            # Xs, Ys, Zs 的中误差（通过逆矩阵传播近似）
+            ext_det = np.linalg.det(ext)
+            var_Xs = (Q[0, 0] * (l.l6*l.l11 - l.l7*l.l10)**2 + 
+                      Q[1, 1] * (l.l7*l.l9 - l.l5*l.l11)**2 + 
+                      Q[2, 2] * (l.l5*l.l10 - l.l6*l.l9)**2 +
+                      Q[4, 4] * (l.l3*l.l11 - l.l2*l.l10)**2 +
+                      Q[5, 5] * (l.l1*l.l11 - l.l3*l.l9)**2 +
+                      Q[6, 6] * (l.l2*l.l9 - l.l1*l.l10)**2 +
+                      Q[8, 8] * (l.l2*l.l7 - l.l3*l.l6)**2 +
+                      Q[9, 9] * (l.l3*l.l5 - l.l1*l.l7)**2 +
+                      Q[10, 10] * (l.l1*l.l6 - l.l2*l.l5)**2) / ext_det**2
+            var_Ys = (Q[3, 3] * (l.l6*l.l11 - l.l7*l.l10)**2 +
+                      Q[0, 0] * (l.l7*l.l11)**2 + Q[2, 2] * (l.l6*l.l11)**2 +
+                      Q[7, 7] * (l.l9*l.l11 - l.l10*l.l9)**2) / ext_det**2
+            var_Zs = (Q[3, 3] * (l.l6*l.l10 - l.l5*l.l11)**2 +
+                      Q[4, 4] * (l.l3*l.l10)**2 + Q[6, 6] * (l.l5*l.l10)**2) / ext_det**2
+            
+            fout.write(f"  Xs (mm): {format_number(sigma * math.sqrt(var_Xs))}\n")
+            fout.write(f"  Ys (mm): {format_number(sigma * math.sqrt(var_Ys))}\n")
+            fout.write(f"  Zs (mm): {format_number(sigma * math.sqrt(var_Zs))}\n")
+            fout.write(f"  phi (度): {format_number(sigma * math.sqrt(Q[8, 8] + Q[9, 9] + Q[10, 10]) * 180 / PI)}\n")
+            fout.write(f"  omega (度): {format_number(sigma * math.sqrt(Q[8, 8] + Q[9, 9] + Q[10, 10]) * 180 / PI)}\n")
+            fout.write(f"  kappa (度): {format_number(sigma * math.sqrt(Q[8, 8] + Q[9, 9] + Q[10, 10]) * 180 / PI)}\n\n")
+
             # 像点观测值残差
             fout.write("【像点观测值残差（像素）】\n")
             fout.write(f"{'点号':<8} {'dx':<16} {'dy':<16}\n")
@@ -302,7 +343,7 @@ def saveDLTResult(filename, image_name, l, M, x, W, used):
         print(f"无法打开输出文件 {full_path}: {e}")
 
 
-def getLi(l, pt, GCP, image_name="未知", max_iterations=100):
+def getLi(l, pt, GCP, image_name="未知", max_iterations=100, convergence_threshold=1e-6):
     """迭代求解Li系数精确值"""
     sz = getSz(pt) - 3  # 减去3个检查点
     M = np.zeros((sz * 2, 16))
@@ -313,6 +354,7 @@ def getLi(l, pt, GCP, image_name="未知", max_iterations=100):
     times = 0
     print(f"\n************* {image_name} 直接线性变换迭代 *************")
     print(f"最大迭代次数: {max_iterations}")
+    print(f"收敛阈值: {convergence_threshold}")
 
     while times < max_iterations:
         itr = 0
@@ -391,7 +433,7 @@ def getLi(l, pt, GCP, image_name="未知", max_iterations=100):
 
         times += 1
         tmp = Judge(l)
-        if abs(tmp - fx) < 1e-3 or int(tmp - fx) == 0:
+        if abs(tmp - fx) < convergence_threshold or int(tmp - fx) == 0:
             print(f"\n直接线性变换迭代次数: {times}")
             getLPrecision(M, x, W, sz * 2)
             ErrDisplay(M @ x - W, used)
@@ -501,7 +543,7 @@ def saveUnknownPoints(filename, Unknow, x_52, y_52, z_52):
         print(f"无法保存待定点坐标到文件 {full_path}: {e}")
 
 
-def getUnknow(l_pt, r_pt, l, r):
+def getUnknow(l_pt, r_pt, l, r, convergence_threshold=1e-6):
     """计算未知点坐标"""
     l_un = []
     r_un = []
@@ -527,6 +569,7 @@ def getUnknow(l_pt, r_pt, l, r):
     for pt in l_un:
         print(f"{pt.pid} ", end="")
     print("\n")
+    print(f"收敛阈值: {convergence_threshold}")
 
     sz = len(l_un)
     # 畸变改正
@@ -604,7 +647,7 @@ def getUnknow(l_pt, r_pt, l, r):
 
             val = np.linalg.inv(N.T @ N) @ N.T @ Q
 
-            if abs(res.X - val[0, 0]) < 1e-3 and abs(res.Y - val[1, 0]) < 1e-3 and abs(res.Z - val[2, 0]) < 1e-3:
+            if abs(res.X - val[0, 0]) < convergence_threshold and abs(res.Y - val[1, 0]) < convergence_threshold and abs(res.Z - val[2, 0]) < convergence_threshold:
                 res.pid = l_un[i].pid
                 Unknow.append(res)
                 break
@@ -639,7 +682,7 @@ def getUnknow(l_pt, r_pt, l, r):
     saveUnknownPoints("unknown_points.txt", Unknow, x_52, y_52, z_52)
 
 
-def getExtPre(l_pt, r_pt, GCP, l, r):
+def getExtPre(l_pt, r_pt, GCP, l, r, convergence_threshold=1e-6):
     """检查点精度验证"""
     l_un = []
     r_un = []
@@ -665,6 +708,7 @@ def getExtPre(l_pt, r_pt, GCP, l, r):
     for pt in r_un:
         print(f"{pt.pid} ", end="")
     print("\n")
+    print(f"收敛阈值: {convergence_threshold}")
 
     sz = len(r_un)
     Check = []
@@ -718,7 +762,7 @@ def getExtPre(l_pt, r_pt, GCP, l, r):
 
             val = np.linalg.inv(N.T @ N) @ N.T @ Q
 
-            if abs(res.X - val[0, 0]) < 1e-3 and abs(res.Y - val[1, 0]) < 1e-3 and abs(res.Z - val[2, 0]) < 1e-3:
+            if abs(res.X - val[0, 0]) < convergence_threshold and abs(res.Y - val[1, 0]) < convergence_threshold and abs(res.Z - val[2, 0]) < convergence_threshold:
                 res.pid = l_un[i].pid
                 Check.append(res)
                 break
